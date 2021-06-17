@@ -1,0 +1,562 @@
+---
+title: "Game_Anlysis"
+author: "Team13"
+date: "9/7/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggrepel)
+library(corrr)
+library(sqldf)
+```
+
+## Load Data
+
+```{r data}
+setwd("C:/Users/kevin/OneDrive/Desktop/MQM/Applied Probability and Statistics/Group Project")
+data = read.csv('game_info.csv')
+```
+We first look at some correlations to inform our the approach to our analysis. 
+
+```{r}
+num_var <- unlist(lapply(data, is.numeric))
+suggestions_cor <- data[, num_var] %>% correlate() %>% focus(suggestions_count)
+colnames(suggestions_cor) <- c("variable name", "corr_to_suggestions")
+
+# filter the positive correlations and sort them in decreasing order 
+
+pos_suggestions_cor <- suggestions_cor[which(suggestions_cor$corr_to_suggestions>0),] 
+pos_suggestions_cor[order(pos_suggestions_cor$corr_to_suggestions, decreasing = TRUE),]
+
+# filter the positive correlations and sort them in decreasing order 
+
+neg_suggestions_cor <- suggestions_cor[which(suggestions_cor$corr_to_suggestions<0),]
+neg_suggestions_cor[order(neg_suggestions_cor$corr_to_suggestions, decreasing = FALSE),]
+
+suggestions_cor[order(suggestions_cor$corr_to_suggestions, decreasing=TRUE),]
+```
+We next cleanse our data, removing missing values to strengthen the signals between our predictor and response variables. 
+
+```{r data_cleaning}
+# omit all NA values
+selection = data %>% select(id, suggestions_count,released, achievements_count, playtime, 
+                             platforms, genres, publishers,
+                            developers, game_series_count,) %>% na.omit()
+selection = selection[selection$suggestions_count !=0, ]
+selection = selection[selection$released != "",]
+selection = selection[selection$achievements_count !=0,]
+selection = selection[selection$playtime != 0,]
+selection = selection[selection$publishers != "",]
+selection = selection[selection$developers != "",]
+selection = selection[selection$genres != "",]
+selection = selection[selection$platforms != "",]
+
+selection
+
+```
+
+To get an idea of which video game systems are the most popular, we sort our data by system and take the median suggestions_count for each system.
+
+```{r temp}
+
+# To check whether there are weird data
+
+sug_countbyp <- sqldf('SELECT MEDIAN(suggestions_count), count(*), CASE WHEN platforms LIKE "PC%" OR platforms LIKE "%PC" OR platforms LIKE "%PC%" OR platforms = "PC" THEN "PC" WHEN platforms LIKE "macOS%" OR platforms LIKE "%macOS" OR platforms LIKE "%macOS%" THEN "macOS" WHEN platforms LIKE "Xbox One%" OR platforms LIKE "%Xbox One" OR platforms LIKE "%Xbox One%" THEN "Xbox One" WHEN platforms LIKE "Xbox 360%" OR platforms LIKE "%Xbox 360" OR platforms LIKE "%Xbox 360%" THEN "Xbox 360" WHEN platforms LIKE "PlayStation 4%" OR platforms LIKE "%PlayStation 4" OR platforms LIKE "%PlayStation 4%" THEN "PlayStation 4" WHEN platforms LIKE "PlayStation 3%" OR platforms LIKE "%PlayStation 3" OR platforms LIKE "%PlayStation 3%" THEN "PlayStation 3" WHEN platforms LIKE "iOS%" OR platforms LIKE "%iOS" OR platforms LIKE "%iOS%" THEN "iOS" END AS platform FROM selection GROUP BY platform ORDER BY MEDIAN(suggestions_count) DESC')
+
+sug_countbyp2 <- sqldf('SELECT MEDIAN(suggestions_count), count(*), CASE WHEN platforms LIKE "Android%" OR platforms LIKE "%Android" OR platforms LIKE "%Android%" THEN "Android" WHEN platforms LIKE "Linux%" OR platforms LIKE "%Linux" OR platforms LIKE "%Linux%" THEN "Linux" WHEN platforms LIKE "Nintendo Switch%" OR platforms LIKE "%Nintendo Switch" OR platforms LIKE "%Nintendo Switch%" THEN "Nintendo Switch" WHEN platforms LIKE "Nintendo 3DS%" OR platforms LIKE "%Nintendo 3DS" OR platforms LIKE "%Nintendo 3DS%" THEN "Nintendo 3DS" WHEN platforms LIKE "PS Vita%" OR platforms LIKE "%PS Vita" OR platforms LIKE "%PS Vita%" THEN "PS Vita" WHEN platforms LIKE "Wii%" OR platforms LIKE "%Wii" OR platforms LIKE "%Wii%" THEN "Android" WHEN platforms LIKE "Wii%" OR platforms LIKE "%Wii U" OR platforms LIKE "%Wii U%" THEN "Wii U" END AS platform FROM selection GROUP BY platform ORDER BY MEDIAN(suggestions_count) DESC')
+
+sug_countbyp3 <- sqldf('SELECT MEDIAN(suggestions_count), count(*), CASE WHEN platforms LIKE "Nintendo 64%" OR platforms LIKE "%Nintendo 64" OR platforms LIKE "%Nintendo 64%" THEN "Nintendo 64" WHEN platforms LIKE "SNES%" OR platforms LIKE "%SNES" OR platforms LIKE "%SNES%" THEN "SNES" WHEN platforms LIKE "PlayStation%" OR platforms LIKE "%PlayStation" OR platforms LIKE "%PlayStation%" THEN "PlayStation" WHEN platforms LIKE "Game Boy Advance%" OR platforms LIKE "%Game Boy Advance" OR platforms LIKE "%Game Boy Advance%" THEN "Game Boy Advance" WHEN platforms LIKE "PSP%" OR platforms LIKE "%PSP" OR platforms LIKE "%PSP%" THEN "PSP" WHEN platforms LIKE "GameCube%" OR platforms LIKE "%GameCube" OR platforms LIKE "%GameCube%" THEN "GameCube" END AS platform FROM selection GROUP BY platform ORDER BY MEDIAN(suggestions_count) DESC')
+
+sug_countbyp4 <- sqldf('SELECT MEDIAN(suggestions_count), count(*), CASE WHEN platforms LIKE "Xbox%" OR platforms LIKE "%Xbox" OR platforms LIKE "%Xbox%" THEN "Xbox" WHEN platforms LIKE "Web%" OR platforms LIKE "%Web" OR platforms LIKE "%Web%" THEN "Web" WHEN platforms LIKE "Nintendo DS%" OR platforms LIKE "%Nintendo DS" OR platforms LIKE "%Nintendo DS%" THEN "Nintendo DS" WHEN platforms LIKE "PlayStation 2%" OR platforms LIKE "%PlayStation 2" OR platforms LIKE "%PlayStation 2%" THEN "PlayStation 2" WHEN platforms LIKE "Neo Geo%" OR platforms LIKE "%Neo Geo" OR platforms LIKE "%Neo Geo%" THEN "Neo Geo" WHEN platforms LIKE "Game Boy%" OR platforms LIKE "%Game Boy" OR platforms LIKE "%Game Boy%" THEN "Game Boy" WHEN platforms LIKE "Commodore / Amiga%" OR platforms LIKE "%Commodore / Amiga" OR platforms LIKE "%Commodore / Amiga%" THEN "Commodore / Amiga" END AS platform FROM selection GROUP BY platform ORDER BY MEDIAN(suggestions_count) DESC')
+
+sug_countbyp <- rbind(sug_countbyp, sug_countbyp2)
+sug_countbyp <- rbind(sug_countbyp, sug_countbyp3)
+sug_countbyp <- rbind(sug_countbyp, sug_countbyp4)
+sug_countbyp <- na.omit(sug_countbyp)
+
+
+sug_countbyp
+```
+
+We plot these data visualize the median recommendations by video game system. 
+
+```{r}
+colnames(sug_countbyp) <- c("Median", "Count", "Platform")
+
+sug_countbyp <- sug_countbyp[order(sug_countbyp$`Count`),]
+ggplot(data = sug_countbyp, aes(x = Platform, y=Median, color=Median)) + 
+  geom_point() + theme(axis.text.x=element_blank()) +
+  scale_color_gradientn(colours=c("red","green","steelblue","darkblue")) +
+  labs(x="Platform", y="Median Recommendations") +
+    geom_text_repel(aes(label = Platform), nudge_y = -5, size=4)
+
+sug_countbyp$freq = sug_countbyp$Count/sum(sug_countbyp$Count)
+
+every_nth = function(n) {
+  return(function(x) {x[c(TRUE, rep(FALSE, n - 1))]})
+}
+
+ggplot(sug_countbyp, aes(x= Platform, y= freq)) + 
+  geom_bar(stat ='identity') + labs(x ="Platform", y = "% by platform", title = "% Games by Platform") + 
+  theme(plot.title = element_text(hjust=0.5)) +
+  scale_x_discrete(breaks = every_nth(n = 4))
+```
+
+Though this approach is informative, we do not have very many observations per video game system. To make our analysis more robust, we group similar systems and recalculate the median suggestions_count.
+
+```{r}
+
+Computer <- sqldf('SELECT MEDIAN(suggestions_count), count(*), CASE WHEN platforms LIKE "PC%" OR platforms LIKE "%PC" OR platforms LIKE "%PC%" OR platforms = "PC" OR platforms LIKE "macOS%" OR platforms LIKE "%macOS" OR platforms LIKE "%macOS%" OR platforms = "macOS" OR platforms LIKE "Linux%" OR platforms LIKE "%Linux" OR platforms LIKE "%Linux%" OR platforms = "Linux" OR platforms LIKE "Web%" OR platforms LIKE "%Web" OR platforms LIKE "%Web%" OR platforms = "Web" THEN "Computer" END AS platform FROM selection GROUP BY platform ORDER BY MEDIAN(suggestions_count) DESC')
+
+Xbox <- sqldf('SELECT MEDIAN(suggestions_count), count(*), CASE WHEN platforms LIKE "Xbox%" OR platforms LIKE "%Xbox" OR platforms LIKE "%Xbox%" OR platforms = "Xbox" THEN "Xbox" END AS platform FROM selection GROUP BY platform ORDER BY MEDIAN(suggestions_count) DESC')
+
+PlayStation <- sqldf('SELECT MEDIAN(suggestions_count), count(*), CASE WHEN platforms LIKE "PlayStation%" OR platforms LIKE "%PlayStation" OR platforms LIKE "%PlayStation%" OR platforms = "PlayStation" OR platforms LIKE "PS Vita%" OR platforms LIKE "%PS Vita" OR platforms LIKE "%PS Vita%" OR platforms = "PS Vita" OR platforms LIKE "PSP%" OR platforms LIKE "%PSP" OR platforms LIKE "%PSP%" OR platforms = "PSP" THEN "PlayStation" END AS platform FROM selection GROUP BY platform ORDER BY MEDIAN(suggestions_count) DESC')
+
+Mobile <- sqldf('SELECT MEDIAN(suggestions_count), count(*), CASE WHEN platforms LIKE "iOS%" OR platforms LIKE "%iOS" OR platforms LIKE "%iOS%" OR platforms = "iOS" OR platforms LIKE "Android%" OR platforms LIKE "%Android" OR platforms LIKE "%Android%" OR platforms = "Android" THEN "Mobile" END AS platform FROM selection GROUP BY platform ORDER BY MEDIAN(suggestions_count) DESC')
+
+Nintendo <- sqldf('SELECT MEDIAN(suggestions_count), count(*), CASE WHEN platforms LIKE "Nintendo%" OR platforms LIKE "%Nintendo" OR platforms LIKE "%Nintendo%" OR platforms LIKE "Wii%" OR platforms LIKE "%Wii" OR platforms LIKE "%Wii%" OR platforms = "Wii" OR  platforms LIKE "Game Boy%" OR platforms LIKE "%Game Boy" OR platforms LIKE "%Game Boy%" OR platforms = "Game Boy" OR  platforms LIKE "GameCube%" OR platforms LIKE "%GameCube" OR platforms LIKE "%GameCube%" OR platforms = "GameCube" THEN "Nintendo" END AS platform FROM selection GROUP BY platform ORDER BY MEDIAN(suggestions_count) DESC')
+
+Legacy <- sqldf('SELECT MEDIAN(suggestions_count), count(*), CASE WHEN platforms LIKE "SNES%" OR platforms LIKE "%SNES" OR platforms LIKE "%SNES%" OR platforms LIKE "Neo Geo%" OR platforms LIKE "%Neo Geo" OR platforms LIKE "%Neo Geo%" OR platforms = "Neo Geo" OR platforms LIKE "Commodore / Amiga%" OR platforms LIKE "%Commodore / Amiga" OR platforms LIKE "%Commodore / Amiga%" OR platforms = "Comodore / Amiga" THEN "Legacy System" END AS platform FROM selection GROUP BY platform ORDER BY MEDIAN(suggestions_count) DESC')
+
+```
+
+We can see more than half the games in our dataset are computer games, with only a small handful of legacy system games and ~8-15% of the rest of the listings are on Xbox, Mobile, PlayStation or Nintendo. 
+
+```{r regression}
+suggestions_by_platform <- c()
+
+suggestions_by_platform <- rbind(suggestions_by_platform, Computer)
+suggestions_by_platform <- rbind(suggestions_by_platform, Xbox)
+suggestions_by_platform <- rbind(suggestions_by_platform, PlayStation)
+suggestions_by_platform <- rbind(suggestions_by_platform, Mobile)
+suggestions_by_platform <- rbind(suggestions_by_platform, Nintendo)
+suggestions_by_platform <- rbind(suggestions_by_platform, Legacy)
+
+suggestions_by_platform <- na.omit(suggestions_by_platform)
+
+colnames(suggestions_by_platform) <- c("Median Suggestions", "Count", "Platform")
+
+suggestions_by_platform[order(suggestions_by_platform$`Median Suggestions`, decreasing=TRUE),]
+
+suggestions_by_platform$freq = suggestions_by_platform$Count/sum(suggestions_by_platform$Count)
+
+ggplot(suggestions_by_platform, aes(x= Platform, y= freq)) + 
+  geom_bar(stat ='identity') + labs(x ="Platform", y = "% by platform", title = "% Games by Platform") + 
+  theme(plot.title = element_text(hjust=0.5))
+
+```
+
+```{r}
+
+ggplot(data = suggestions_by_platform, aes(x = Platform, y=`Median Suggestions`, color=`Median Suggestions`)) + 
+  geom_point(size=2) + theme(axis.text.x=element_blank()) +
+  scale_color_gradientn(colours=c("red","green","steelblue","darkblue")) +
+  labs(x="Platform", y="Median Recommendations") +
+  geom_text_repel(aes(label = Platform), nudge_y = -5, size=4) +
+  ylim(290, 440)
+
+```
+To view these data from another perspective, we plot the distribution of recommendations based on our grouped systems using a box and whiskers plot.  
+
+```{r}
+Computer1 <- sqldf('SELECT suggestions_count, CASE WHEN platforms LIKE "PC%" OR platforms LIKE "%PC" OR platforms LIKE "%PC%" OR platforms = "PC" OR platforms LIKE "macOS%" OR platforms LIKE "%macOS" OR platforms LIKE "%macOS%" OR platforms = "macOS" OR platforms LIKE "Linux%" OR platforms LIKE "%Linux" OR platforms LIKE "%Linux%" OR platforms = "Linux" OR platforms LIKE "Web%" OR platforms LIKE "%Web" OR platforms LIKE "%Web%" OR platforms = "Web" THEN "Computer" END AS platform FROM selection')
+
+Xbox1 <- sqldf('SELECT suggestions_count, CASE WHEN platforms LIKE "Xbox%" OR platforms LIKE "%Xbox" OR platforms LIKE "%Xbox%" OR platforms = "Xbox" THEN "Xbox" END AS platform FROM selection')
+
+PlayStation1 <- sqldf('SELECT suggestions_count, CASE WHEN platforms LIKE "PlayStation%" OR platforms LIKE "%PlayStation" OR platforms LIKE "%PlayStation%" OR platforms = "PlayStation" OR platforms LIKE "PS Vita%" OR platforms LIKE "%PS Vita" OR platforms LIKE "%PS Vita%" OR platforms = "PS Vita" OR platforms LIKE "PSP%" OR platforms LIKE "%PSP" OR platforms LIKE "%PSP%" OR platforms = "PSP" THEN "PlayStation" END AS platform FROM selection')
+
+Mobile1 <- sqldf('SELECT suggestions_count, CASE WHEN platforms LIKE "iOS%" OR platforms LIKE "%iOS" OR platforms LIKE "%iOS%" OR platforms = "iOS" OR platforms LIKE "Android%" OR platforms LIKE "%Android" OR platforms LIKE "%Android%" OR platforms = "Android" THEN "Mobile" END AS platform FROM selection')
+
+Nintendo1 <- sqldf('SELECT suggestions_count, CASE WHEN platforms LIKE "Nintendo%" OR platforms LIKE "%Nintendo" OR platforms LIKE "%Nintendo%" OR platforms LIKE "Wii%" OR platforms LIKE "%Wii" OR platforms LIKE "%Wii%" OR platforms = "Wii" OR  platforms LIKE "Game Boy%" OR platforms LIKE "%Game Boy" OR platforms LIKE "%Game Boy%" OR platforms = "Game Boy" OR  platforms LIKE "GameCube%" OR platforms LIKE "%GameCube" OR platforms LIKE "%GameCube%" OR platforms = "GameCube" THEN "Nintendo" END AS platform FROM selection')
+
+Legacy1 <- sqldf('SELECT suggestions_count, CASE WHEN platforms LIKE "SNES%" OR platforms LIKE "%SNES" OR platforms LIKE "%SNES%" OR platforms LIKE "Neo Geo%" OR platforms LIKE "%Neo Geo" OR platforms LIKE "%Neo Geo%" OR platforms = "Neo Geo" OR platforms LIKE "Commodore / Amiga%" OR platforms LIKE "%Commodore / Amiga" OR platforms LIKE "%Commodore / Amiga%" OR platforms = "Comodore / Amiga" THEN "Legacy System" END AS platform FROM selection')
+```
+
+```{r}
+suggestions_by_platform1 <- c()
+
+ suggestions_by_platform1 <- rbind( suggestions_by_platform1, Computer1)
+ suggestions_by_platform1 <- rbind( suggestions_by_platform1, Xbox1)
+ suggestions_by_platform1 <- rbind( suggestions_by_platform1, PlayStation1)
+ suggestions_by_platform1 <- rbind( suggestions_by_platform1, Mobile1)
+ suggestions_by_platform1 <- rbind( suggestions_by_platform1, Nintendo1)
+ suggestions_by_platform1 <- rbind( suggestions_by_platform1, Legacy1)
+
+ suggestions_by_platform1 <- na.omit( suggestions_by_platform1)
+```
+
+```{r}
+ggplot(suggestions_by_platform1, aes(platform, suggestions_count, fill=factor(platform))) + 
+  geom_boxplot() + 
+  theme(axis.text.x = element_text(angle=90, vjust=0.5, hjust=1), legend.position='none') +
+  labs(x="Platform", y="Recommendations")
+```
+From our regression model below we can see slope coefficients by platform, where PlayStation and Xbox games have a clear advantage. The slope coefficients for the Legacy and Mobile systems are far from statistically significant, while an r^2 of only .07612 tells us that platforms do not have much explanatory power for median suggestions_count. 
+
+```{r}
+summary(lm(suggestions_count~platform, suggestions_by_platform1))
+```
+To reintegrate our platform analysis into our final regression model we compute new columns of binary variables indicating whether each game falls into any of the platform categories and bind these columns to our original cleansed dataset. 
+
+```{r}
+Computer2 <- sqldf('SELECT id, CASE WHEN platforms LIKE "PC%" OR platforms LIKE "%PC" OR platforms LIKE "%PC%" OR platforms = "PC" OR platforms LIKE "macOS%" OR platforms LIKE "%macOS" OR platforms LIKE "%macOS%" OR platforms = "macOS" OR platforms LIKE "Linux%" OR platforms LIKE "%Linux" OR platforms LIKE "%Linux%" OR platforms = "Linux" OR platforms LIKE "Web%" OR platforms LIKE "%Web" OR platforms LIKE "%Web%" OR platforms = "Web" THEN 1 ELSE 0 END AS Computer FROM selection')
+
+Xbox2 <- sqldf('SELECT id, CASE WHEN platforms LIKE "Xbox%" OR platforms LIKE "%Xbox" OR platforms LIKE "%Xbox%" OR platforms = "Xbox" THEN 1 ELSE 0 END AS Xbox FROM selection')
+
+PlayStation2 <- sqldf('SELECT id, CASE WHEN platforms LIKE "PlayStation%" OR platforms LIKE "%PlayStation" OR platforms LIKE "%PlayStation%" OR platforms = "PlayStation" OR platforms LIKE "PS Vita%" OR platforms LIKE "%PS Vita" OR platforms LIKE "%PS Vita%" OR platforms = "PS Vita" OR platforms LIKE "PSP%" OR platforms LIKE "%PSP" OR platforms LIKE "%PSP%" OR platforms = "PSP" THEN 1 ELSE 0 END AS PlayStation FROM selection')
+
+Mobile2 <- sqldf('SELECT id, CASE WHEN platforms LIKE "iOS%" OR platforms LIKE "%iOS" OR platforms LIKE "%iOS%" OR platforms = "iOS" OR platforms LIKE "Android%" OR platforms LIKE "%Android" OR platforms LIKE "%Android%" OR platforms = "Android" THEN 1 ELSE 0 END AS Mobile FROM selection')
+
+Nintendo2 <- sqldf('SELECT id, CASE WHEN platforms LIKE "Nintendo%" OR platforms LIKE "%Nintendo" OR platforms LIKE "%Nintendo%" OR platforms LIKE "Wii%" OR platforms LIKE "%Wii" OR platforms LIKE "%Wii%" OR platforms = "Wii" OR  platforms LIKE "Game Boy%" OR platforms LIKE "%Game Boy" OR platforms LIKE "%Game Boy%" OR platforms = "Game Boy" OR  platforms LIKE "GameCube%" OR platforms LIKE "%GameCube" OR platforms LIKE "%GameCube%" OR platforms = "GameCube" THEN 1 ELSE 0 END AS Nintendo FROM selection')
+
+Legacy2 <- sqldf('SELECT id, CASE WHEN platforms LIKE "SNES%" OR platforms LIKE "%SNES" OR platforms LIKE "%SNES%" OR platforms LIKE "Neo Geo%" OR platforms LIKE "%Neo Geo" OR platforms LIKE "%Neo Geo%" OR platforms = "Neo Geo" OR platforms LIKE "Commodore / Amiga%" OR platforms LIKE "%Commodore / Amiga" OR platforms LIKE "%Commodore / Amiga%" OR platforms = "Comodore / Amiga" THEN 1 ELSE 0 END AS `Legacy System` FROM selection')
+```
+
+```{r}
+selection <- inner_join(selection, Computer2, by="id")
+selection <- inner_join(selection, Xbox2, by="id")
+selection <- inner_join(selection, PlayStation2, by="id")
+selection <- inner_join(selection, Mobile2, by="id")
+selection <- inner_join(selection, Nintendo2, by="id")
+selection <- inner_join(selection, Legacy2, by="id")
+
+head(selection)
+
+```
+```{r}
+Adventure <- sqldf('SELECT id, CASE WHEN genres LIKE "%Adventure" OR genres LIKE "Adventure%" OR genres LIKE "%Adventure%" OR genres = "Adventure" THEN 1 ELSE 0 END AS Adventure FROM selection') 
+
+Arcade <- sqldf('SELECT id, CASE WHEN genres LIKE "%Arcade" OR genres LIKE "Arcade%" OR genres LIKE "%Arcade%" OR genres = "Arcade" THEN 1 ELSE 0 END AS Arcade FROM selection')
+
+BoardGames <- sqldf('SELECT id, CASE WHEN genres LIKE "%BoardGames" OR genres LIKE "BoardGames%" OR genres LIKE "%BoardGames%" OR genres = "BoardGames" THEN 1 ELSE 0 END AS BoardGames FROM selection')
+
+Card <- sqldf('SELECT id, CASE WHEN genres LIKE "%Card" OR genres LIKE "Card%" OR genres LIKE "%Card%" OR genres = "Card" THEN 1 ELSE 0 END AS Card FROM selection')
+
+Casual <- sqldf('SELECT id, CASE WHEN genres LIKE "%Casual" OR genres LIKE "Casual%" OR genres LIKE "%Casual%" OR genres = "Casual" THEN 1 ELSE 0 END AS Casual FROM selection')
+
+Educational <- sqldf('SELECT id, CASE WHEN genres LIKE "%Educational" OR genres LIKE "Educational%" OR genres LIKE "%Educational%" OR genres = "Educational" THEN 1 ELSE 0 END AS Educational FROM selection')
+
+Family <- sqldf('SELECT id, CASE WHEN genres LIKE "%Family" OR genres LIKE "Family%" OR genres LIKE "%Family%" OR genres = "Family" THEN 1 ELSE 0 END AS Family FROM selection')
+
+Fight <- sqldf('SELECT id, CASE WHEN genres LIKE "%Fight" OR genres LIKE "Fight%" OR genres LIKE "%Fight%" OR genres = "Fight" THEN 1 ELSE 0 END AS Fight FROM selection')
+
+Indie <- sqldf('SELECT id, CASE WHEN genres LIKE "%Indie" OR genres LIKE "Indie%" OR genres LIKE "%Indie%" OR genres = "Indie" THEN 1 ELSE 0 END AS Indie FROM selection')
+
+Multiplayer <- sqldf('SELECT id, CASE WHEN genres LIKE "%Multiplayer" OR genres LIKE "Multiplayer%" OR genres LIKE "%Multiplayer%" OR genres = "Multiplayer" THEN 1 ELSE 0 END AS Multiplayer FROM selection')
+
+Platformer <- sqldf('SELECT id, CASE WHEN genres LIKE "%Platformer" OR genres LIKE "Platformer%" OR genres LIKE "%Platformer%" OR genres = "Platformer" THEN 1 ELSE 0 END AS Platformer FROM selection')
+
+Puzzle <- sqldf('SELECT id, CASE WHEN genres LIKE "%Puzzle" OR genres LIKE "Puzzle%" OR genres LIKE "%Puzzle%" OR genres = "Puzzle" THEN 1 ELSE 0 END AS Puzzle FROM selection')
+
+Racing <- sqldf('SELECT id, CASE WHEN genres LIKE "%Racing" OR genres LIKE "Racing%" OR genres LIKE "%Racing%" OR genres = "Racing" THEN 1 ELSE 0 END AS Racing FROM selection')
+
+RPG <- sqldf('SELECT id, CASE WHEN genres LIKE "%RPG" OR genres LIKE "RPG%" OR genres LIKE "%RPG%" OR genres = "RPG" THEN 1 ELSE 0 END AS RPG FROM selection')
+
+Shooter <- sqldf('SELECT id, CASE WHEN genres LIKE "%Shooter" OR genres LIKE "Shooter%" OR genres LIKE "%Shooter%" OR genres = "Shooter" THEN 1 ELSE 0 END AS Shooter FROM selection')
+
+Simulation <- sqldf('SELECT id, CASE WHEN genres LIKE "%Simulation" OR genres LIKE "Simulation%" OR genres LIKE "%Simulation%" OR genres = "Simulation" THEN 1 ELSE 0 END AS Simulation FROM selection')
+
+Sports <- sqldf('SELECT id, CASE WHEN genres LIKE "%Sports" OR genres LIKE "Sports%" OR genres LIKE "%Sports%" OR genres = "Sports" THEN 1 ELSE 0 END AS Sports FROM selection')
+
+Strategy <- sqldf('SELECT id, CASE WHEN genres LIKE "%Strategy" OR genres LIKE "Strategy%" OR genres LIKE "%Strategy%" OR genres = "Strategy" THEN 1 ELSE 0 END AS Strategy FROM selection')
+```
+
+```{r}
+selection <- inner_join(selection, Adventure, by="id")
+selection <- inner_join(selection, Arcade, by="id")
+selection <- inner_join(selection, BoardGames, by="id")
+selection <- inner_join(selection, Card, by="id")
+selection <- inner_join(selection, Casual, by="id")
+selection <- inner_join(selection, Educational, by="id")
+selection <- inner_join(selection, Family, by="id")
+selection <- inner_join(selection, Fight, by="id")
+selection <- inner_join(selection, Indie, by="id")
+selection <- inner_join(selection, Multiplayer, by="id")
+selection <- inner_join(selection, Platformer, by="id")
+selection <- inner_join(selection, Puzzle, by="id")
+selection <- inner_join(selection, Racing, by="id")
+selection <- inner_join(selection, RPG, by="id")
+selection <- inner_join(selection, Shooter, by="id")
+selection <- inner_join(selection, Simulation, by="id")
+selection <- inner_join(selection, Sports, by="id")
+selection <- inner_join(selection, Strategy, by="id")
+
+head(selection)
+
+```
+
+```{r}
+prod_EA <- sqldf('SELECT id, CASE WHEN publishers LIKE "%Electronic Arts" OR publishers LIKE "Electronic Arts%" OR publishers LIKE "%Electronic Arts%" OR publishers = "Electronic Arts" THEN 1 ELSE 0 END AS prod_EA FROM selection')
+Kiss <- sqldf('SELECT id, CASE WHEN publishers LIKE "%Kiss" OR publishers LIKE "Kiss%" OR publishers LIKE "%Kiss%" OR publishers = "Kiss" THEN 1 ELSE 0 END AS Kiss FROM selection')
+Microsoft <- sqldf('SELECT id, CASE WHEN publishers LIKE "%Microsoft" OR publishers LIKE "Microsoft%" OR publishers LIKE "%Microsoft%" OR publishers = "Microsoft" THEN 1 ELSE 0 END AS Microsoft FROM selection')
+PlugIn <- sqldf('SELECT id, CASE WHEN publishers LIKE "%Plug In" OR publishers LIKE "Plug In%" OR publishers LIKE "%Plug In%" OR publishers = "Plug In" THEN 1 ELSE 0 END AS PlugIn FROM selection')
+prod_Sega <- sqldf('SELECT id, CASE WHEN publishers LIKE "%Sega" OR publishers LIKE "Sega%" OR publishers LIKE "%Sega%" OR publishers = "Sega" THEN 1 ELSE 0 END AS prod_Sega FROM selection')
+prod_SquareEnix <- sqldf('SELECT id, CASE WHEN publishers LIKE "%Square Enix" OR publishers LIKE "Square Enix%" OR publishers LIKE "%Square Enix%" OR publishers = "Square Enix" THEN 1 ELSE 0 END AS prod_SquareEnix FROM selection')
+StrategyFirst <- sqldf('SELECT id, CASE WHEN publishers LIKE "%Strategy First" OR publishers LIKE "Strategy First%" OR publishers LIKE "%Strategy First%" OR publishers = "Strategy First" THEN 1 ELSE 0 END AS StrategyFirst FROM selection')
+THQNordic <- sqldf('SELECT id, CASE WHEN publishers LIKE "%THQ" OR publishers LIKE "THQ%" OR publishers LIKE "%THQ%" OR publishers = "THQ" THEN 1 ELSE 0 END AS THQ FROM selection')
+prod_Ubisoft <- sqldf('SELECT id, CASE WHEN publishers LIKE "%Ubisoft" OR publishers LIKE "Ubisoft%" OR publishers LIKE "%Ubisoft%" OR publishers = "Ubisoft" THEN 1 ELSE 0 END AS prod_Ubisoft FROM selection')
+
+
+
+```
+
+
+```{r}
+Capcom <- sqldf('SELECT id, CASE WHEN developers LIKE "%Capcom" OR developers LIKE "Capcom%" OR developers LIKE "%Capcom%" OR developers = "Capcom" THEN 1 ELSE 0 END AS Capcom FROM selection')
+dev_EA <- sqldf('SELECT id, CASE WHEN developers LIKE "%Electronic Arts" OR developers LIKE "Electronic Arts%" OR developers LIKE "%Electronic Arts%" OR developers = "Electronic Arts" THEN 1 ELSE 0 END AS dev_EA FROM selection')
+Feral <- sqldf('SELECT id, CASE WHEN developers LIKE "%Feral" OR developers LIKE "Feral%" OR developers LIKE "%Feral%" OR developers = "Feral" THEN 1 ELSE 0 END AS Feral FROM selection')
+Konami <- sqldf('SELECT id, CASE WHEN developers LIKE "%Konami" OR developers LIKE "Konami%" OR developers LIKE "%Konami%" OR developers = "Konami" THEN 1 ELSE 0 END AS Konami FROM selection')
+dev_Nintendo <- sqldf('SELECT id, CASE WHEN developers LIKE "%Nintendo" OR developers LIKE "Nintendo%" OR developers LIKE "%Nintendo%" OR developers = "Nintendo" THEN 1 ELSE 0 END AS dev_Nintendo FROM selection')
+dev_Sega <- sqldf('SELECT id, CASE WHEN developers LIKE "%Sega" OR developers LIKE "Sega%" OR developers LIKE "%Sega%" OR developers = "Sega" THEN 1 ELSE 0 END AS dev_Sega FROM selection')
+dev_SquareEnix <- sqldf('SELECT id, CASE WHEN developers LIKE "%Square Enix" OR developers LIKE "Square Enix%" OR developers LIKE "%Square Enix%" OR developers = "Square Enix" THEN 1 ELSE 0 END AS dev_SquareEnix FROM selection')
+Sony <- sqldf('SELECT id, CASE WHEN developers LIKE "%Sony" OR developers LIKE "Sony%" OR developers LIKE "%Sony%" OR developers = "Sony" THEN 1 ELSE 0 END AS Sony FROM selection')
+dev_Ubisoft <- sqldf('SELECT id, CASE WHEN developers LIKE "%Ubisoft" OR developers LIKE "Ubisoft%" OR developers LIKE "%Ubisoft%" OR developers = "Ubisoft" THEN 1 ELSE 0 END AS dev_Ubisoft FROM selection')
+```
+
+```{r}
+selection <- inner_join(selection, prod_EA, by="id")
+selection <- inner_join(selection, Kiss, by="id")
+selection <- inner_join(selection, Microsoft, by="id")
+selection <- inner_join(selection, PlugIn, by="id")
+selection <- inner_join(selection, prod_Sega, by="id")
+selection <- inner_join(selection, prod_SquareEnix, by="id")
+selection <- inner_join(selection, StrategyFirst, by="id")
+selection <- inner_join(selection, THQNordic, by="id")
+selection <- inner_join(selection, prod_Ubisoft, by="id")
+selection <- inner_join(selection, dev_EA, by="id")
+selection <- inner_join(selection, dev_Sega, by="id")
+selection <- inner_join(selection, dev_SquareEnix, by="id")
+selection <- inner_join(selection, dev_Ubisoft, by="id")
+selection <- inner_join(selection, dev_Nintendo, by="id")
+selection <- inner_join(selection, Capcom, by="id")
+selection <- inner_join(selection, Feral, by="id")
+selection <- inner_join(selection, Konami, by="id")
+selection <- inner_join(selection, Sony, by="id")
+```
+
+```{r}
+
+```
+
+
+We next turn to release date and begin with some initial exploratory analysis plotting the release date of every game in our dataset.
+
+```{r}
+ggplot(selection, aes(x=released)) +
+  scale_x_discrete(breaks = every_nth(n = 500)) +
+  geom_histogram(position = "dodge", binwidth = NULL, stat="count", color="lightblue")
+```
+Next we look at what percentage of games are released in each year. The vast majority of the games in our dataset were released in the past decade.
+
+```{r}
+# first make a table of the categories (room numbers) and corresponding frequencies 
+release_count_table = table(substr(selection$released, 1, 4))
+# convert it to a data frame for the convenience of plotting 
+release_counts <- as.data.frame(release_count_table)
+# create a percentage of each category
+release_counts["Percentage"] <- round(release_counts$Freq * 100 / nrow(selection), 3)
+# assign proper names to the columns in the data frame 
+names(release_counts) <- c("release_year", "Frequency", "Percentage")
+
+# create a bar plot using ggplot 
+g1 <- ggplot(release_counts, aes(x= release_year, y=Percentage)) + 
+  geom_bar(stat ='identity')
+# add labs, title, and ajust the position of the title 
+g1 + labs(x ="Release year", y = "% released", title = "% Listings by Release Year") + 
+  theme(plot.title = element_text(hjust=0.5)) + scale_x_discrete(breaks = every_nth(n = 5))
+```
+Next we recompute our data to provide counts of game releases per week of the year along with median recommendations per week of the year. 
+
+```{r}
+weeks <- sqldf('SELECT id, released, MEDIAN(suggestions_count) as Recommendations, COUNT(*) as count FROM selection GROUP BY released')
+weeks <- na.omit(weeks)
+weeks <- weeks[!(weeks$released==""),]
+weeks$release_week <- strftime(weeks$released, format = "%V")
+weeks <- sqldf('SELECT release_week, MEDIAN(Recommendations) as Recommendations, SUM(count) FROM weeks GROUP BY release_week ORDER BY `Recommendations`')
+weeks <- weeks[!(weeks$release_week=="53"),]
+
+weeks
+```
+We illustrate this information below. The release weeks with the highest recommendations are clustered in the mid to high 40's, corresponding to a November release date. Release schedules appear fairly uniform throughout the year other than low levels in the first two weeks of January and the last weeks of December and June. 
+
+```{r}
+ggplot(data = weeks, aes(x = release_week, y=Recommendations, color=Recommendations)) + 
+  geom_point() + theme(axis.text.x=element_blank()) +
+  scale_color_gradient(low = "#32aeff", high = "#f2aeff") +
+  labs(x="Release Date", y="Median Reccomendations") +
+  geom_text_repel(aes(label=release_week)) +
+  annotate(geom="text", x=45, y=115, label="R = .482") +
+  ylim(225, 400)
+
+cor(as.numeric(weeks$release_week), weeks$Recommendations)
+
+sumcount <- sum(weeks$`SUM(count)`)
+# create a bar plot using ggplot 
+g1 <- ggplot(weeks, aes(x= release_week, y=`SUM(count)`/sumcount)) + 
+  geom_bar(stat ='identity')
+# add labs, title, and ajust the position of the title 
+g1 + labs(x ="Release week", y = "Games released", title = "% games released by week of the year") + 
+  theme(plot.title = element_text(hjust=0.5)) + scale_x_discrete(breaks = every_nth(n = 5))
+```
+Performing a regression analysis on release week vs. recommendations we can see the positive correlation between later weeks in the year and higher recommendations, with an average .3 higher recommendations for each week later in the year, though a p-vaue of .242 is not statistically significant and r^2 of .027724 means this model has very little explanatory power.
+
+```{r}
+summary(lm(Recommendations~as.numeric(release_week), weeks))
+```
+We get much better results if we order and rank weeks of the year (ie, the first week of the year is ranked 1, as it has the lowest median recommendations, followed by week 52 with the second lowest median). Regressing on this variable tells us that the average increase for moving up one rank has an impact on recommendations five times as higher as just releasing one week later in the year, with a statistically significant p-value near zero and an r^2 of nearly .84. This is certainly the metric we will want to build into our final regression model.  
+
+```{r}
+weeks$week_ranking = c(1:nrow(weeks))
+weeks
+summary(lm(Recommendations~as.numeric(week_ranking), weeks))
+```
+We used a brute-force function to translate weeks of the year into our ranked week list and v-applied this function to release date column in our cleansed dataset. Running a quick correlation between suggestions_count and week_rank tells us the correlation is more than three times as strong as the correlation between suggestions_count and the flat week number, however a correlation of only .072 is not terribly inspiring.   
+```{r}
+date_to_week_rank <- function(x) {
+  if (x == "01"){result <- 1} else if (x == "53") {result <- 2} else if (x == "52") {result <- 3} else if (x == "33") {result <- 4} else if (x == "24") {result <- 5} 
+  else if (x== "28") {result <- 6} else if (x == "51") {result <- 7} else if (x == "29") {result <- 8} else if (x == "03") {result <- 9} else if (x == "27") {result <- 10} 
+  else if (x== "15") {result <- 11} else if (x == "19") {result <- 12} else if (x == "16") {result <- 13} else if (x == "50") {result <- 14} else if (x == "04") {result <- 15} 
+  else if (x== "37") {result <- 16} else if (x == "41") {result <- 17} else if (x == "18") {result <- 18} else if (x == "12") {result <- 19} else if (x == "31") {result <- 20} 
+  else if (x== "14") {result <- 21} else if (x == "36") {result <- 22} else if (x == "32") {result <- 23} else if (x == "34") {result <- 24} else if (x == "11") {result <- 25} 
+  else if (x== "02") {result <- 26} else if (x == "42") {result <- 27} else if (x == "05") {result <- 28} else if (x == "07") {result <- 29} else if (x == "21") {result <- 30}
+  else if (x== "40") {result <- 31} else if (x == "47") {result <- 32} else if (x == "09") {result <- 33} else if (x == "39") {result <- 34} else if (x == "49") {result <- 35} 
+  else if (x== "08") {result <- 36} else if (x == "20") {result <- 37} else if (x == "22") {result <- 38} else if (x == "23") {result <- 39} else if (x == "26") {result <- 40} 
+  else if (x== "10") {result <- 41} else if (x == "17") {result <- 42} else if (x == "06") {result <- 43} else if (x == "25") {result <- 44} else if (x == "30") {result <- 45} 
+  else if (x== "38") {result <- 46} else if (x == "35") {result <- 47} else if (x == "48") {result <- 48} else if (x == "43") {result <- 49} else if (x == "46") {result <- 50}
+  else if (x== "13") {result <- 51} else if (x == "45") {result <- 52} else if (x == "44") {result <- 53}
+}
+
+```
+
+```{r}
+selection$release_week <- strftime(selection$released, format="%V")
+head(selection$release_week)
+
+week_rank <- vapply(selection$release_week, date_to_week_rank, numeric(1))
+
+cor(selection$suggestions_count, as.numeric(selection$release_week))
+cor(selection$suggestions_count, week_rank)
+
+selection <- cbind(selection, week_rank)
+
+head(selection)
+
+```
+We can see from our regression of suggestions on genre that the board game, family, puzzle and racing have pretty insignificant p-values. We drop these categories and rerun our regression, then compute AICs for both and see we've lost very little r^2 and marginally improved our AIC. We'll drop these categories and exclude any categorical variables with p-values less than .05 in the rest of our regression analyses. 
+
+```{r}
+#FIND R^2 WITH ALL GENRES
+summary(lm(suggestions_count~Adventure+Arcade+BoardGames+Card+Casual+Educational+Family+Fight+Indie+Multiplayer+Puzzle+Racing+RPG+Shooter+Simulation+Sports+Strategy, data=selection))
+#DROP INSIGINICANT CATEGORIES
+summary(lm(suggestions_count~Adventure+Arcade+Card+Casual+Educational+Fight+Indie+Multiplayer+RPG+Shooter+Simulation+Sports+Strategy, data=selection))
+
+#TAKE AIC'S FOR EACH
+AIC(lm(suggestions_count~Adventure+Arcade+BoardGames+Card+Casual+Educational+Family+Fight+Indie+Multiplayer+Puzzle+Racing+RPG+Shooter+Simulation+Sports+Strategy, data=selection))
+
+AIC(lm(suggestions_count~Adventure+Arcade+Card+Casual+Educational+Fight+Indie+Multiplayer+RPG+Shooter+Simulation+Sports+Strategy, data=selection))
+```
+
+```{r}
+summary(lm(suggestions_count~EA.x+Kiss+Microsoft+PlugIn+StrategyFirst+THQ+Sega.x+SquareEnix.x+Ubisoft.x, data=selection))
+
+summary(lm(suggestions_count~EA.x+Microsoft+StrategyFirst+THQ+Sega.x+SquareEnix.x+Ubisoft.x, data=selection))
+
+AIC(lm(suggestions_count~EA.x+Kiss+Microsoft+PlugIn+StrategyFirst+THQ+Sega.x+SquareEnix.x+Ubisoft.x, data=selection))
+AIC(lm(suggestions_count~EA.x+Microsoft+StrategyFirst+THQ+Sega.x+SquareEnix.x+Ubisoft.x, data=selection))
+```
+
+```{r}
+summary(lm(formula = suggestions_count ~ EA.y + Capcom + Feral + 
+    Konami + Sony + Sega.y + SquareEnix.y + Ubisoft.y, 
+    data = selection))
+```
+```{r}
+summary(lm(suggestions_count~Computer+Mobile+`Legacy System`+Nintendo+PlayStation+Xbox, selection))
+
+summary(lm(suggestions_count~Computer+Mobile+Nintendo+PlayStation+Xbox, selection))
+
+paste("AIC - All Platforms:", round(AIC(lm(suggestions_count~Computer+Xbox+PlayStation+Mobile+Nintendo+`Legacy System`, selection3)), 2))
+paste("AIC - Platforms minus Legacy:", round(AIC(lm(suggestions_count~Computer+Xbox+PlayStation+Mobile+Nintendo, selection3)), 2))
+```
+```{r}
+selection[which(selection$game_series_count < 16 & selection$playtime < 30 & selection$achievements_count < 500),]
+```
+
+```{r}
+summary(lm(suggestions_count~achievements_count, selection))
+
+summary(lm(suggestions_count~achievements_count, selection[which(selection$achievements_count < 500),]))
+
+AIC(lm(suggestions_count~achievements_count, selection))
+AIC(lm(suggestions_count~achievements_count, selection[which(selection$achievements_count < 500),]))
+```
+```{r}
+summary(lm(suggestions_count~playtime, selection))
+summary(lm(suggestions_count~playtime, selection[which(selection$playtime < 30),]))
+
+AIC(lm(suggestions_count~playtime, selection))
+AIC(lm(suggestions_count~playtime, selection[which(selection$playtime < 30),]))
+```
+```{r}
+summary(lm(suggestions_count~game_series_count, selection))
+
+summary(lm(suggestions_count~game_series_count, selection[which(selection$game_series_count < 16),]))
+
+AIC(lm(suggestions_count~game_series_count, selection))
+
+AIC(lm(suggestions_count~game_series_count, selection[which(selection$game_series_count < 16),]))
+```
+
+```{r}
+summary(lm(suggestions_count~game_series_count+achievements_count+playtime, selection))
+
+summary(lm(suggestions_count~game_series_count+achievements_count+playtime, selection[which(selection$game_series_count < 16 & selection$playtime < 30 & selection$achievements_count < 500),]))
+
+AIC(lm(suggestions_count~game_series_count+achievements_count+playtime, selection))
+
+AIC(lm(suggestions_count~game_series_count+achievements_count+playtime, selection[which(selection$game_series_count < 16 & selection$playtime < 30 & selection$achievements_count < 500),]))
+```
+
+
+```{r}
+summary(lm(suggestions_count~game_series_count+achievements_count+playtime, selection))
+
+summary(lm(suggestions_count~game_series_count+achievements_count+playtime, selection[which(selection$game_series_count < 16 & selection$playtime < 30 & selection$achievements_count < 500),]))
+
+AIC(lm(suggestions_count~game_series_count+achievements_count+playtime, selection))
+
+AIC(lm(suggestions_count~game_series_count+achievements_count+playtime, selection[which(selection$game_series_count < 16 & selection$playtime < 30 & selection$achievements_count < 500),]))
+```
+
+
+```{r}
+summary(lm(suggestions_count~week_rank+achievements_count+Mobile+Nintendo+PlayStation+Xbox+EA.y + Capcom + Feral + Sega.y + EA.x+Kiss+Microsoft+StrategyFirst+THQ+Sega.x+SquareEnix.x+Adventure+Card+Casual+Educational+Fight+Indie+Multiplayer+RPG+Shooter+Simulation+Sports+Strategy, selection))
+
+summary(lm(suggestions_count~week_rank+achievements_count+playtime+Computer+Mobile+Nintendo+PlayStation+Xbox+EA.y + Capcom + Feral + Sega.y + EA.x+Kiss+Microsoft+StrategyFirst+THQ+Sega.x+SquareEnix.x+Ubisoft.x+Adventure+Arcade+Card+Casual+Educational+Fight+Indie+Multiplayer+RPG+Shooter+Simulation+Sports+Strategy, selection[which(selection$game_series_count < 16 & selection$playtime < 30 & selection$achievements_count < 500),]))
+
+AIC(lm(suggestions_count~week_rank+achievements_count+Mobile+Nintendo+PlayStation+Xbox+EA.y + Capcom + Feral +Sega.y + EA.x+Kiss+Microsoft+StrategyFirst+THQ+Sega.x+SquareEnix.x+Ubisoft.x+Adventure+Card+Casual+Educational+Fight+Indie+Multiplayer+RPG+Shooter+Simulation+Sports+Strategy, selection))
+
+AIC(lm(suggestions_count~week_rank+achievements_count+playtime+Computer+Mobile+Nintendo+PlayStation+Xbox+EA.y + Capcom + Feral + Sega.y + EA.x+Kiss+Microsoft+StrategyFirst+THQ+Sega.x+SquareEnix.x+Ubisoft.x+Adventure+Arcade+Card+Casual+Educational+Fight+Indie+Multiplayer+RPG+Shooter+Simulation+Sports+Strategy, selection[which(selection$game_series_count < 16 & selection$playtime < 30 & selection$achievements_count < 500),]))
+
+```
+
+```{r}
+final_model <- (lm(suggestions_count~week_rank+game_series_count+achievements_count+Mobile+Nintendo+PlayStation+Xbox+EA.y + Capcom + Feral + Sega.y + EA.x+Kiss+Microsoft+StrategyFirst+THQ+Sega.x+SquareEnix.x+Adventure+Card+Casual+Educational+Fight+Indie+Multiplayer+RPG+Shooter+Simulation+Sports+Strategy, selection))
+
+v<-date_to_week_rank("24")
+v
+
+
+SuperBashBros <- data.frame(week_rank=5, game_series_count=4, achievements_count=300, Mobile=1, Nintendo=1, PlayStation=0, Xbox=1, EA.y=0, Capcom=0, Feral=1, Sega.y=0, EA.x=1, Kiss=0, Microsoft=0, StrategyFirst=0, THQ=0, Sega.x=0, SquareEnix.x=0, Adventure=0, Card=0, Casual=0, Educational=0, Fight=1, Indie=0, Multiplayer=1, RPG=0, Shooter=0, Simulation=0, Strategy=0, Sports=0)
+
+predict(final_model, SuperBashBros, interval = "prediction")
+```
+
+
+```{r}
+summary(selection$game_series_count)
+```
+
